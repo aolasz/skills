@@ -1,0 +1,39 @@
+name: Sync with upstream
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+      - run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/mattpocock/skills.git
+          git fetch upstream main
+          # Apart from the workflows directory, main mirrors upstream exactly, so
+          # an empty diff means upstream has not moved since the last sync.
+          if git diff --quiet upstream/main HEAD -- ':(exclude).github/workflows'; then
+            echo "Upstream unchanged; skipping sync."
+            exit 0
+          fi
+          cp .github/workflows/sync-upstream.yml /tmp/sync-upstream.yml
+          git reset --hard upstream/main
+          # Drop any workflows upstream ships and keep only our own sync workflow.
+          # GITHUB_TOKEN is not allowed to create/update other workflow files on
+          # push, and we do not want upstream's automation anyway.
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp /tmp/sync-upstream.yml .github/workflows/sync-upstream.yml
+          git add -A .github/workflows
+          git diff --cached --quiet || git commit -m "chore: restore sync workflow, drop upstream workflows"
+          git push origin main --force
